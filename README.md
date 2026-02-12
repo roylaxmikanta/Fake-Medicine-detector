@@ -1,182 +1,346 @@
-# 💊 Fake Medicine Detector - Complete Project Guide
+# 🔍 Advanced Medicine Authenticity Checker
 
-## Project Overview
-This is an AI-powered fake medicine detection system that uses OCR (Optical Character Recognition) and Machine Learning to identify counterfeit medicines from their packaging images.
+An AI-powered medicine verification system that combines **FDA/RxNorm API databases** with **Deep Learning** to detect fake medicines. Supports human medicines, veterinary medicines, and international brands.
 
-## Project Structure
-```
-Fake medicine detector/
-├── fake_medicine_detection.ipynb    # Jupyter Notebook with model training
-├── app.py                           # Streamlit web application
-├── medicine_model.pkl               # Trained ML model (generated after running notebook)
-├── requirements.txt                 # Python dependencies
-├── README.md                        # This file
-├── full_medicine_dataset.csv        # Complete processed dataset
-└── .venv/                           # Virtual environment
-```
+![Medicine Checker](https://img.shields.io/badge/Status-Active-success)
+![Python](https://img.shields.io/badge/Python-3.8+-blue)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red)
 
-## How It Works
+---
 
-### Phase 1: Model Training (Jupyter Notebook)
-1. **Data Processing**: Extracts text from 661 medicine packaging images using EasyOCR
-2. **Feature Extraction**: Converts text to numerical features using TF-IDF vectorizer
-3. **Model Training**: Trains Naive Bayes classifier on Real vs Fake medicines
-4. **Model Accuracy**: Achieved 81.82% accuracy on the full dataset
-5. **Model Saving**: Saves trained model as `medicine_model.pkl`
+## 🎯 **Features**
 
-### Phase 2: Web Application (Streamlit App)
-1. **User Interface**: Simple, user-friendly web interface
-2. **Image Upload**: Users upload medicine packaging photos
-3. **OCR Extraction**: Automatically extracts text from the image
-4. **Prediction**: Classifies as Real or Fake with confidence percentage
-5. **Results Display**: Shows detailed analysis and warnings
+✅ **Multi-Source Verification:**
+- FDA Database (US-approved medicines)
+- RxNorm API (Generic medicine names)
+- Deep Learning Model (Image-based fallback)
 
-## Installation & Setup
+✅ **Advanced OCR:**
+- EasyOCR for text extraction
+- Confidence-based filtering
+- Multi-language support
 
-### Step 1: Install Dependencies
+✅ **Smart Detection:**
+- Extracts medicine names from packaging
+- Handles dosage variations (500mg, 250ml, etc.)
+- Supports brand and generic names
+
+✅ **User-Friendly Interface:**
+- Interactive Streamlit web app
+- Two-column layout for easy viewing
+- Adjustable confidence threshold
+- Real-time verification results
+
+---
+
+## 🚀 **Quick Start**
+
+### **Prerequisites**
+- Python 3.8 or higher
+- pip (Python package manager)
+
+### **Installation**
+
+1. **Clone the repository:**
 ```bash
+git clone https://github.com/YOUR_USERNAME/Medicine-Authenticity-Checker.git
+cd Medicine-Authenticity-Checker
+```
+
+2. **Create virtual environment (recommended):**
+```bash
+python -m venv .venv
+
+# Activate virtual environment
+# Windows:
+.venv\Scripts\activate
+
+# Mac/Linux:
+source .venv/bin/activate
+```
+
+3. **Install dependencies:**
+```bash
+cd web_creat
 pip install -r requirements.txt
 ```
 
-### Step 2: Verify Model File
-Make sure `medicine_model.pkl` exists in the project directory. If not:
-- Run all cells in `fake_medicine_detection.ipynb` to generate it
-
-### Step 3: Run the Streamlit App
+4. **Run the application:**
 ```bash
 streamlit run app.py
 ```
 
-The app will open in your default browser at `http://localhost:8501`
-
-## Usage
-
-### Using the Streamlit Web App
-1. **Open the app** in your browser
-2. **Upload a medicine image** (JPG, PNG, or JPEG)
-3. **Click "🔍 SCAN MEDICINE"** button
-4. **Wait for results** - The app will:
-   - Extract text from the medicine packaging
-   - Analyze the text
-   - Predict if it's Real or Fake
-   - Show confidence percentage
-
-### Interpreting Results
-- ✅ **REAL MEDICINE**: Green success message means the medicine appears to be genuine
-- 🚨 **FAKE MEDICINE**: Red error message means potential counterfeit detected
-- **Confidence Level**: Shows how certain the model is (Higher = More confident)
-
-## Model Details
-
-### Dataset Used
-- **Total Images**: 661
-- **Real Medicines**: 421 images
-- **Fake Medicines**: 240 images
-- **Source**: medicine_fake_real(1) dataset
-
-### Model Specifications
-- **Algorithm**: Naive Bayes Classifier
-- **Text Processing**: TF-IDF Vectorizer
-- **Training-Test Split**: 80% training, 20% testing
-- **Accuracy**: 81.82%
-- **Precision**: Real (100%), Fake (89%)
-- **Recall**: Real (86%), Fake (100%)
-
-### Performance Metrics
+5. **Open in browser:**
 ```
-              precision    recall  f1-score   support
-        Fake       0.89      1.00      0.94       96
-        Real       1.00      0.86      0.92      325
-    accuracy                           0.91      421
+http://localhost:8501
 ```
-
-## Important Notes
-
-### ⚠️ Disclaimer
-- This model is NOT 100% accurate
-- Accuracy is approximately **82%** on test data
-- Use this as a **preliminary screening tool only**
-- Always verify with official sources or licensed pharmacists
-- Do NOT solely rely on this app for medicine authentication
-
-### Best Practices for Scanning
-1. **Clear Images**: Use well-lit, clear photos of medicine packaging
-2. **Readable Text**: Ensure text on packaging is clearly visible
-3. **Verify Multiple Times**: Scan from different angles if needed
-4. **Professional Verification**: Always consult with:
-   - Licensed pharmacists
-   - Official medicine manufacturers
-   - Government health authorities
-
-## Troubleshooting
-
-### Model File Not Found
-**Error**: `medicine_model.pkl not found!`
-**Solution**: Run `fake_medicine_detection.ipynb` completely to generate the model
-
-### OCR Not Extracting Text
-**Issue**: "Photo mein text saaf nahi dikh raha"
-**Solution**: Use a clearer, better-lit image of the medicine packaging
-
-### App Won't Start
-**Solution**:
-```bash
-# Reinstall dependencies
-pip install --upgrade -r requirements.txt
-
-# Clear cache
-streamlit cache clear
-
-# Run again
-streamlit run app.py
-```
-
-### Slow Performance
-- **First run** is slow (downloads OCR models)
-- **Subsequent runs** are faster (models are cached)
-- GPU support available (modify `gpu=False` to `gpu=True` in app.py if you have CUDA)
-
-## Future Enhancements
-
-### Planned Features
-1. **Batch Processing**: Scan multiple images at once
-2. **Database Integration**: Save scanning history
-3. **SMS Verification**: Check medicine batch/expiry with manufacturers
-4. **Mobile App**: React Native version for smartphones
-5. **Multi-Language Support**: Hindi, Urdu, Arabic support
-6. **Image Quality Check**: Automatic image validation
-7. **Analytics Dashboard**: Track predictions and accuracy
-
-### Model Improvements
-- Add more training data (1000+ images per category)
-- Implement Deep Learning (CNN, RNN models)
-- Add barcode/QR code verification
-- Integration with official medicine databases
-- Ensemble methods combining multiple models
-
-## Project Team & Credits
-
-### Technologies Used
-- **Python 3.12**: Programming language
-- **Streamlit**: Web framework
-- **EasyOCR**: Text extraction from images
-- **Scikit-learn**: Machine Learning library
-- **PyTorch**: Deep learning framework (for OCR)
-- **Pandas**: Data processing
-- **OpenCV**: Image processing
-- **Joblib**: Model serialization
-
-## License & Usage
-This project is created for educational and safety purposes. 
-Use responsibly and always verify results through official channels.
-
-## Contact & Support
-For issues, suggestions, or improvements:
-- Check the troubleshooting section above
-- Review the code comments for more details
-- Consult medical professionals for any health-related concerns
 
 ---
-**Last Updated**: December 2025
-**Model Accuracy**: 81.82%
-**Status**: ✅ Production Ready
+
+## 📂 **Project Structure**
+```
+Medicine-Authenticity-Checker/
+│
+├── web_creat/                      # Main application folder
+│   ├── app.py                      # Streamlit web app
+│   ├── api_verifier.py             # API verification logic
+│   ├── config.py                   # Configuration settings
+│   ├── medicine_model.pkl          # Trained ML model
+│   └── requirements.txt            # Python dependencies
+│
+├── data/                           # Dataset folder (not in repo)
+│   ├── full_medicine_dataset/
+│   └── medicine_dataset.csv
+│
+├── models/                         # Model files (optional)
+│   └── medicine_model.pkl
+│
+├── notebooks/                      # Jupyter notebooks (training)
+│   └── model_training.ipynb
+│
+├── .gitignore                      # Git ignore file
+├── README.md                       # This file
+└── run.bat                         # Windows run script
+```
+
+---
+
+## 🛠️ **Technology Stack**
+
+| Component | Technology |
+|-----------|------------|
+| **Frontend** | Streamlit |
+| **OCR** | EasyOCR |
+| **APIs** | FDA openAPI, RxNorm |
+| **Deep Learning** | TensorFlow/Keras |
+| **Image Processing** | OpenCV, PIL |
+| **HTTP Requests** | Requests library |
+
+---
+
+## 📖 **How It Works**
+
+### **Verification Process:**
+```
+1. Upload Medicine Image
+         ↓
+2. OCR Text Extraction (EasyOCR)
+         ↓
+3. Extract Medicine Name (Clean & Parse)
+         ↓
+4. API Verification (Priority Order):
+   ├─→ FDA Database (Brand/Generic names)
+   ├─→ RxNorm API (Alternative names)
+   └─→ ML Model (If API fails)
+         ↓
+5. Display Verification Result
+   ├─→ VERIFIED (High Confidence)
+   ├─→ UNVERIFIED (Not in databases)
+   └─→ FAKE/REAL (ML prediction)
+```
+
+### **API Verification Logic:**
+```python
+# Multiple search strategies
+1. Search by brand name (e.g., "Crocin")
+2. Search by generic name (e.g., "Paracetamol")
+3. Search by active ingredient
+4. Fallback to ML model if APIs fail
+```
+
+---
+
+## 🎮 **Usage Guide**
+
+### **Step 1: Upload Image**
+- Click "Upload Medicine Image"
+- Select clear photo of medicine packaging
+- Supported formats: JPG, PNG, JPEG
+
+### **Step 2: View OCR Results**
+- App extracts text from image
+- Shows detected medicine name
+
+### **Step 3: API Verification**
+- Automatically checks FDA database
+- Falls back to RxNorm if not found
+- Shows verification status
+
+### **Step 4: ML Model Analysis**
+- If not found in databases
+- Uses trained deep learning model
+- Shows confidence percentage
+
+### **Step 5: Adjust Settings**
+- Use sidebar slider for threshold
+- Higher threshold = stricter verification
+
+---
+
+## ⚙️ **Configuration**
+
+Edit `web_creat/config.py` to customize:
+```python
+# Image size (match your trained model)
+IMAGE_SIZE = (150, 150)
+
+# Confidence threshold
+MODEL_CONFIDENCE_THRESHOLD = 0.7
+
+# OCR settings
+OCR_LANGUAGES = ['en']  # Add more: ['en', 'hi', 'bn']
+OCR_USE_GPU = False     # Set True if you have GPU
+
+# API timeout
+API_TIMEOUT = 10  # seconds
+```
+
+---
+
+## 📊 **Model Training**
+
+The ML model was trained on:
+- **Dataset:** Kaggle Medicine Dataset
+- **Classes:** REAL vs FAKE
+- **Architecture:** CNN (Convolutional Neural Network)
+- **Input Size:** 150x150 RGB images
+- **Accuracy:** ~85% (on test set)
+
+To retrain:
+```bash
+# See notebooks/model_training.ipynb
+jupyter notebook notebooks/model_training.ipynb
+```
+
+---
+
+## 🧪 **Testing**
+
+### **Test API Verifier:**
+```bash
+cd web_creat
+python api_verifier.py
+```
+
+### **Test with Sample Images:**
+```bash
+streamlit run app.py
+# Upload images from data/test_images/
+```
+
+---
+
+## 📈 **Supported Medicines**
+
+✅ **US-approved medicines** (FDA database)
+✅ **Generic medicines** (RxNorm database)
+✅ **Veterinary medicines** (FDA includes animal drugs)
+✅ **International brands** (if in databases)
+
+⚠️ **Limited support:**
+- Very local/regional medicines not in US databases
+- Traditional/Ayurvedic medicines (use ML model)
+
+---
+
+## 🚨 **Limitations**
+
+1. **API Coverage:** Only medicines in FDA/RxNorm databases
+2. **OCR Accuracy:** Depends on image quality
+3. **ML Model:** Trained only on specific dataset
+4. **Internet Required:** For API verification
+
+---
+
+## 🤝 **Contributing**
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open Pull Request
+
+---
+
+## 📝 **To-Do List**
+
+- [ ] Add more international medicine databases
+- [ ] Improve ML model accuracy
+- [ ] Add barcode/QR code scanning
+- [ ] Multi-language OCR support
+- [ ] Mobile app version
+- [ ] Batch processing for multiple images
+
+---
+
+## ⚠️ **Disclaimer**
+
+This tool is for **reference purposes only**. It should **NOT** replace professional medical advice or official verification by pharmacists/regulatory authorities.
+
+**Always consult a licensed pharmacist or healthcare provider for medicine verification.**
+
+---
+
+## 📄 **License**
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 👨‍💻 **Author**
+
+**Your Name**
+- GitHub: [@your-username](https://github.com/your-username)
+- LinkedIn: [Your Profile](https://linkedin.com/in/your-profile)
+- Email: your.email@example.com
+
+---
+
+## 🙏 **Acknowledgments**
+
+- **FDA openAPI** - For medicine database access
+- **RxNorm** - For generic medicine names
+- **EasyOCR** - For text extraction
+- **Streamlit** - For web framework
+- **Kaggle** - For medicine dataset
+
+---
+
+## 📞 **Support**
+
+If you encounter issues:
+1. Check [Issues](https://github.com/your-username/repo/issues) page
+2. Create new issue with error details
+3. Contact via email
+
+---
+
+## 📸 **Screenshots**
+
+### Main Interface
+![Main Interface](screenshots/main_interface.png)
+
+### Verification Result
+![Verification](screenshots/verification_result.png)
+
+### Settings Panel
+![Settings](screenshots/settings_panel.png)
+
+---
+
+## 🔗 **Useful Links**
+
+- [FDA API Documentation](https://open.fda.gov/apis/)
+- [RxNorm API Guide](https://rxnav.nlm.nih.gov/)
+- [Streamlit Documentation](https://docs.streamlit.io/)
+- [EasyOCR GitHub](https://github.com/JaidedAI/EasyOCR)
+
+---
+
+**⭐ If this project helped you, please give it a star!**
+
+---
+
+*Last Updated: February 2026*
