@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Streamlit
+.streamlit/
+
+# Model files (large files - optional)
+# Uncomment if you don't want to upload large model files
+# *.pkl
+# *.h5
+# *.pt
+
+# Data files (large datasets)
+data/
+full_medicine_dataset/
+*.csv
+
+# OS files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
