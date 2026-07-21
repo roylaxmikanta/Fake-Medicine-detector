@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # Configuration
-MODEL_PATH = 'medicine_model.pkl'
+MODEL_PATH = 'models/medicine_model.pkl'
 IMAGE_SIZE = (150, 150)  # Change this based on your model
 CONFIDENCE_THRESHOLD = 0.7
 
