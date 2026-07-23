@@ -17,7 +17,8 @@ st.set_page_config(
 )
 
 # Configuration
-MODEL_PATH = 'models/medicine_model.pkl'
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(os.path.dirname(BASE_DIR), 'models', 'medicine_model.pkl')
 IMAGE_SIZE = (150, 150)  # Change this based on your model
 CONFIDENCE_THRESHOLD = 0.7
 
@@ -170,7 +171,7 @@ if uploaded_file:
     with col1:
         # Display image
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Medicine", use_column_width=True)
+        st.image(image, caption="Uploaded Medicine", use_container_width=True)
     
     with col2:
         # Check if resources are loaded

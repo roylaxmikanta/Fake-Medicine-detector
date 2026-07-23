@@ -11,8 +11,8 @@ venv/
 env/
 ENV/
 
-# Streamlit
-.streamlit/
+# Streamlit (keep config.toml tracked for deployment)
+# .streamlit/
 
 # Model files (large files - optional)
 # Uncomment if you don't want to upload large model files
