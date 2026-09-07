@@ -10,6 +10,7 @@ __pycache__/
 venv/
 env/
 ENV/
+.env
 
 # Streamlit (keep config.toml tracked for deployment)
 # .streamlit/

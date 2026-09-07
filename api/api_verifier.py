@@ -13,7 +13,7 @@ class MedicineAPIVerifier:
     """
     
     def __init__(self):
-        from config import (
+        from .config import (
             FDA_API_BASE, 
             RXNORM_API_BASE, 
             API_TIMEOUT,
