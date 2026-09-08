@@ -47,6 +47,142 @@ API documentation is available at `http://127.0.0.1:8000/docs`.
 
 On Windows, `run.bat` can also be used after the virtual environment and dependencies have been configured. The batch file may require updating if the repository is moved.
 
+## A-to-Z Workflow
+
+### 1. Prepare the Dataset
+
+Training images are organized by class:
+
+```text
+data/
+├── Fake/
+└── Real/
+```
+
+The training pipeline reads these folders, resizes images to `150 x 150`, converts them to tensors, normalizes them with ImageNet values, and creates training and validation sets.
+
+### 2. Train the Model
+
+Run the training script from the repository root:
+
+```powershell
+python src/train.py
+```
+
+The script trains a MobileNetV2 classifier and writes:
+
+```text
+models/medicine_model.pt
+models/preprocessing.pkl
+```
+
+The `.pt` file contains the model weights. The preprocessing file contains class metadata such as `Fake` and `Real`.
+
+### 3. Start the API
+
+When the API starts, `api/main.py` loads the model, preprocessing metadata, EasyOCR, and API verifier. The browser interface is served from `api/static/index.html`.
+
+### 4. Process an Uploaded Image
+
+The prediction flow is:
+
+```text
+Image upload
+    -> Image validation
+    -> EasyOCR text extraction
+    -> Medicine-name cleaning
+    -> FDA and RxNorm verification
+    -> MobileNetV2 Fake/Real prediction
+    -> Optional Groq usage description
+    -> JSON response
+```
+
+### 5. Configure Secrets
+
+Create `.env` locally. Never commit it:
+
+```env
+HF_API_KEY=your_huggingface_key
+GROQ_API_KEY=your_groq_key
+TAVILY_API_KEY=your_tavily_key
+```
+
+### 6. Run Locally
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+uvicorn api.main:app --reload
+```
+
+Open `http://127.0.0.1:8000/`. Check the service with:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+### 7. Test the API
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/predict" `
+  -F "file=@data/Real/images01.jpg"
+```
+
+### 8. Build and Run with Docker
+
+The Dockerfile installs CPU-only PyTorch and copies only runtime files. The port is configurable through `PORT`.
+
+```powershell
+docker build -t fake-medicine-api:slim .
+docker run -d --name fake-medicine-api -e PORT=8000 -p 8000:8000 --env-file .env fake-medicine-api:slim
+```
+
+Open `http://localhost:8000` and view logs with `docker logs -f fake-medicine-api`.
+
+### 9. Publish to GitHub
+
+1. Keep API keys in a local `.env` file only. The `.env` file is ignored by Git:
+
+  ```env
+  HF_API_KEY=your_huggingface_key
+  GROQ_API_KEY=your_groq_key
+  TAVILY_API_KEY=your_tavily_key
+  ```
+
+2. Commit and push the source code:
+
+  ```powershell
+  git add .
+  git commit -m "Prepare application for deployment"
+  git push origin main
+  ```
+
+### 10. Deploy
+
+The application requires more memory than Render's free 512 MB plan because PyTorch and EasyOCR load at startup. Use a deployment plan with at least 2 GB RAM, such as Google Cloud Run, and add the three secrets through the provider's environment settings.
+
+For Render, select **New > Web Service**, connect the GitHub repository, select branch `main`, choose **Docker**, leave **Root Directory** blank, add the environment variables, set the health check path to `/health`, and deploy.
+
+Save the public URL here after deployment:
+
+  ```text
+  https://YOUR-SERVICE-NAME.onrender.com
+  ```
+
+### 11. Verify the Deployment
+
+  ```text
+  https://YOUR-SERVICE-NAME.onrender.com/health
+  ```
+
+  The response should contain `"status": "healthy"`, `"model_loaded": true`, and `"ocr_loaded": true`.
+
+The response should contain `"status": "healthy"`, `"model_loaded": true`, and `"ocr_loaded": true`.
+
+Free or low-cost services may sleep after inactivity, so the first request can be slow. Never upload `.env` or exposed API keys to GitHub.
+
 ## API Endpoints
 
 ### `GET /health`
@@ -125,30 +261,6 @@ python src/train.py
 The script saves trained weights to `models/medicine_model.pt` and class metadata to `models/preprocessing.pkl`. It also writes `confusion_matrix.png` in the repository root.
 
 The notebook is for OCR and TF-IDF experiments. Its first cell installs notebook dependencies with `%pip`; restart the notebook kernel after installation if imports were previously failing. Run the OCR-processing cell before the training cell and confirm that the generated `Text` column contains detected text.
-
-## Docker
-
-Build and run the API:
-
-```powershell
-docker build -t medicine-authenticity-checker .
-docker run --rm -p 8000:8000 medicine-authenticity-checker
-```
-
-Then open `http://127.0.0.1:8000/`.
-
-## Verification Flow
-
-```text
-Image upload
-    -> EasyOCR text extraction
-    -> FDA lookup
-    -> RxNorm lookup
-    -> MobileNetV2 image prediction
-    -> Optional Groq usage information
-```
-
-Database verification depends on the detected medicine name and network access. A failed database lookup does not by itself prove that a medicine is fake.
 
 ## Limitations
 

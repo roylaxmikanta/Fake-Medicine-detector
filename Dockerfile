@@ -19,8 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api ./api
 COPY models ./models
 
-# Expose API port
-EXPOSE 8000
+# Hugging Face Spaces uses port 7860 by default. The host port can still be
+# mapped to 8000 when running locally.
+EXPOSE 7860
 
 # Start FastAPI application
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
