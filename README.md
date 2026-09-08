@@ -132,16 +132,16 @@ curl.exe -X POST "http://127.0.0.1:8000/predict" `
 
 ### 8. Build and Run with Docker
 
-The Dockerfile installs CPU-only PyTorch and copies only runtime files. The port is configurable through `PORT`.
+The Dockerfile installs CPU-only PyTorch and copies only runtime files.
 
 ```powershell
 docker build -t fake-medicine-api:slim .
-docker run -d --name fake-medicine-api -e PORT=8000 -p 8000:8000 --env-file .env fake-medicine-api:slim
+docker run -d --name fake-medicine-api -p 8000:8000 --env-file .env fake-medicine-api:slim
 ```
 
 Open `http://localhost:8000` and view logs with `docker logs -f fake-medicine-api`.
 
-### 9. Publish to GitHub
+### 9. Publish the Docker/FastAPI Project to GitHub
 
 1. Keep API keys in a local `.env` file only. The `.env` file is ignored by Git:
 
@@ -159,29 +159,19 @@ Open `http://localhost:8000` and view logs with `docker logs -f fake-medicine-ap
   git push origin main
   ```
 
-### 10. Deploy
+### 10. Deploy the Docker/FastAPI Container
 
-The application requires more memory than Render's free 512 MB plan because PyTorch and EasyOCR load at startup. Use a deployment plan with at least 2 GB RAM, such as Google Cloud Run, and add the three secrets through the provider's environment settings.
+Use a Docker-compatible hosting provider with at least 2 GB RAM because PyTorch and EasyOCR load at startup. Configure the provider to build from the repository `Dockerfile`, expose container port `8000`, and provide the environment variables listed above as secrets.
 
-For Render, select **New > Web Service**, connect the GitHub repository, select branch `main`, choose **Docker**, leave **Root Directory** blank, add the environment variables, set the health check path to `/health`, and deploy.
+After deployment, verify the public URL:
 
-Save the public URL here after deployment:
-
-  ```text
-  https://YOUR-SERVICE-NAME.onrender.com
-  ```
-
-### 11. Verify the Deployment
-
-  ```text
-  https://YOUR-SERVICE-NAME.onrender.com/health
-  ```
-
-  The response should contain `"status": "healthy"`, `"model_loaded": true`, and `"ocr_loaded": true`.
+```text
+https://YOUR-SERVICE-URL/health
+```
 
 The response should contain `"status": "healthy"`, `"model_loaded": true`, and `"ocr_loaded": true`.
 
-Free or low-cost services may sleep after inactivity, so the first request can be slow. Never upload `.env` or exposed API keys to GitHub.
+The project does not include Vercel, Streamlit, or Hugging Face deployment configuration. Never upload `.env` or exposed API keys to GitHub.
 
 ## API Endpoints
 
