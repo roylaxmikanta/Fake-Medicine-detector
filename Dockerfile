@@ -9,10 +9,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+
+# Use CPU-only PyTorch wheels; the API does not require CUDA in this image.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all project files
-COPY . .
+# Copy only files required at runtime.
+COPY api ./api
+COPY models ./models
 
 # Expose API port
 EXPOSE 8000
