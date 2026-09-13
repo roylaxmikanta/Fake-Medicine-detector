@@ -101,6 +101,45 @@ def build_google_search_url(text, api_result):
     return f"https://www.google.com/search?q={quote_plus(query + ' medicine verification')}"
 
 
+def build_evidence_summary(detected_text, expiry_info, api_result, ml_result):
+    """Build user-facing evidence without treating one signal as proof of fraud."""
+    identifiers = api_result.get('identifiers', {}) if api_result else {}
+    licence_values = identifiers.get('licence_numbers', [])
+    ml_prediction = (ml_result or {}).get('prediction', '').lower()
+    api_status = (api_result or {}).get('status', 'NOT_CHECKED')
+    reasons = []
+
+    if ml_prediction == 'fake':
+        reasons.append('The image model detected visual patterns associated with the Fake training class.')
+    if api_status == 'UNVERIFIED':
+        reasons.append('The extracted medicine information was not found in the checked FDA or RxNorm databases.')
+    if not expiry_info:
+        reasons.append('No readable expiry date was detected, so expiry could not be confirmed.')
+    if not licence_values:
+        reasons.append('No readable licence or application number was detected.')
+
+    likely_fake = ml_prediction == 'fake'
+    if likely_fake and api_status == 'UNVERIFIED':
+        conclusion = 'Likely counterfeit based on visual analysis and no database match.'
+    elif likely_fake:
+        conclusion = 'Potentially counterfeit based on visual analysis; verify with a pharmacist or manufacturer.'
+    elif api_status == 'UNVERIFIED':
+        conclusion = 'Not verified. A database miss is not proof that the medicine is fake.'
+    else:
+        conclusion = 'No counterfeit signal was identified by the available checks.'
+
+    return {
+        'conclusion': conclusion,
+        'fake_reasons': reasons if likely_fake else [],
+        'extracted_text': detected_text,
+        'expiry_visible': expiry_info is not None,
+        'licence_visible': bool(licence_values),
+        'licence_numbers': licence_values,
+        'database_status': api_status,
+        'google_cross_check_required': True,
+    }
+
+
 def detect_text_language(text):
     """Identify the dominant language after OCR, without changing the OCR text."""
     try:
@@ -205,6 +244,7 @@ async def predict(file: UploadFile = File(...)):
             "detected_text": None,
             "detected_language": None,
             "ocr_languages": ocr_languages_loaded,
+                "evidence": None,
             "api_verification": None,
             "ml_analysis": None,
             "usage_info": None,
@@ -238,13 +278,15 @@ async def predict(file: UploadFile = File(...)):
 
     google_search_url = build_google_search_url(detected_text, api_result)
     is_expired = expiry_info and expiry_info['expired']
+    evidence = build_evidence_summary(detected_text, expiry_info, api_result, ml_result)
+    is_suspected_fake = bool(ml_result and ml_result.get('prediction', '').lower() == 'fake')
 
     # 4. Fetch Usage Information (Groq)
     usage_info = None
     is_real_api = api_result and api_result.get('status') == 'VERIFIED'
     is_real_ml = ml_result and ml_result.get('prediction', '').lower() == 'real'
     
-    if (is_real_api or is_real_ml) and not is_expired and groq_client:
+    if (is_real_api or is_real_ml) and not is_expired and not is_suspected_fake and groq_client:
         med_name = ""
         if is_real_api:
             med_name = api_result.get('medicine_name', '')
@@ -273,19 +315,20 @@ async def predict(file: UploadFile = File(...)):
             except Exception as e:
                 print(f"Groq API Error: {e}")
 
-    if not usage_info and is_real_api and not is_expired:
+    if not usage_info and is_real_api and not is_expired and not is_suspected_fake:
         usage_info = api_result.get('indications_and_usage') or api_result.get('dosage_and_administration')
 
     return JSONResponse(content={
-        "status": "EXPIRED" if is_expired else "OK",
-        "message": "This medicine is expired. Do not use it; consult a pharmacist for safe disposal and replacement." if is_expired else None,
+        "status": "EXPIRED" if is_expired else ("SUSPECTED_FAKE" if is_suspected_fake else "OK"),
+        "message": "This medicine is expired. Do not use it; consult a pharmacist for safe disposal and replacement." if is_expired else ("This medicine is suspected to be counterfeit. Do not use it until a pharmacist, manufacturer, or regulator verifies it." if is_suspected_fake else None),
         "detected_text": detected_text,
         "detected_language": detected_language,
         "ocr_languages": ocr_languages_loaded,
         "expiry": expiry_info,
+        "evidence": evidence,
         "api_verification": api_result,
         "ml_analysis": ml_result,
-        "usage_info": usage_info if not is_expired else None,
+        "usage_info": usage_info if not is_expired and not is_suspected_fake else None,
         "google_search_url": google_search_url
     })
 

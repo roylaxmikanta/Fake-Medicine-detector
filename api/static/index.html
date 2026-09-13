@@ -90,7 +90,7 @@
             align-items: center;
             padding: 4rem 5%;
             width: 100%;
-            max-width: 1200px;
+            max-width: none;
             margin: 0 auto;
         }
 
@@ -120,6 +120,7 @@
 
         .app-container {
             width: 100%;
+            max-width: none;
             display: grid;
             grid-template-columns: 1fr;
             gap: 2rem;
@@ -128,7 +129,8 @@
 
         @media (min-width: 900px) {
             .app-container.has-results {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: minmax(320px, 0.8fr) minmax(560px, 1.6fr);
+                align-items: start;
             }
         }
 
@@ -252,6 +254,56 @@
         .btn-primary:hover {
             background: var(--primary-light);
             transform: translateY(-2px);
+        }
+
+        .analysis-status {
+            display: none;
+            margin-top: 1rem;
+            padding: 0.85rem 1rem;
+            border-radius: 10px;
+            border: 1px solid var(--border-light);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .analysis-status.visible {
+            display: block;
+        }
+
+        .analysis-status-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+
+        .analysis-status-message {
+            margin-top: 0.35rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            line-height: 1.35;
+        }
+
+        .analysis-status.real {
+            border-color: rgba(16, 185, 129, 0.45);
+            background: var(--success-bg);
+        }
+
+        .analysis-status.real .analysis-status-title {
+            color: var(--success);
+        }
+
+        .analysis-status.fake {
+            border-color: rgba(239, 68, 68, 0.45);
+            background: var(--danger-bg);
+        }
+
+        .analysis-status.fake .analysis-status-title {
+            color: var(--danger);
+        }
+
+        .analysis-status.neutral .analysis-status-title {
+            color: var(--primary-light);
         }
 
         /* Loading Overlay */
@@ -525,6 +577,10 @@
                 <button class="btn-primary" id="btn-submit">
                     <i class="fa-solid fa-microscope"></i> Analyze Authenticity
                 </button>
+                <div class="analysis-status" id="analysis-status" aria-live="polite">
+                    <div class="analysis-status-title"></div>
+                    <div class="analysis-status-message"></div>
+                </div>
             </div>
 
             <!-- Results Card -->
@@ -548,6 +604,7 @@
         const loadingOverlay = document.getElementById('loading-overlay');
         const resultsPanel = document.getElementById('results-panel');
         const appContainer = document.getElementById('app-container');
+        const analysisStatus = document.getElementById('analysis-status');
         
         let selectedFile = null;
 
@@ -591,6 +648,9 @@
                 uploadArea.style.display = 'none';
                 previewWrapper.style.display = 'block';
                 btnSubmit.style.display = 'block';
+                analysisStatus.className = 'analysis-status';
+                analysisStatus.querySelector('.analysis-status-title').textContent = '';
+                analysisStatus.querySelector('.analysis-status-message').textContent = '';
                 resultsPanel.style.display = 'none';
                 appContainer.classList.remove('has-results');
             }
@@ -603,6 +663,7 @@
             uploadArea.style.display = 'flex';
             previewWrapper.style.display = 'none';
             btnSubmit.style.display = 'none';
+            analysisStatus.className = 'analysis-status';
             resultsPanel.style.display = 'none';
             appContainer.classList.remove('has-results');
         }
@@ -637,6 +698,7 @@
         });
 
         function renderResults(data) {
+            updateAnalysisStatus(data);
             appContainer.classList.add('has-results');
             resultsPanel.style.display = 'flex';
             resultsPanel.style.flexDirection = 'column';
@@ -674,12 +736,40 @@
                 if (data.detected_text) {
                     htmlContent += `<div class="data-card" style="margin-top:1rem;"><h3><i class="fa-solid fa-font"></i> Extracted Text (OCR)</h3><div class="extracted-text">${data.detected_text}</div></div>`;
                 }
+                if (data.evidence) {
+                    htmlContent += `<div class="data-card" style="margin-top:1rem;"><h3><i class="fa-solid fa-magnifying-glass-chart"></i> Package evidence</h3><div class="data-row"><span class="data-label">Expiry date visible</span><span class="data-value">${data.evidence.expiry_visible ? 'Yes' : 'No'}</span></div><div class="data-row"><span class="data-label">Licence number visible</span><span class="data-value">${data.evidence.licence_visible ? 'Yes' : 'No'}</span></div></div>`;
+                }
                 if (data.google_search_url) {
                     htmlContent += `<p style="margin-top:1rem;"><a href="${data.google_search_url}" target="_blank" rel="noopener noreferrer">Cross-check this medicine on Google</a></p>`;
                 }
                 resultsPanel.innerHTML = htmlContent;
                 return;
             }
+
+            if (data.status === 'SUSPECTED_FAKE') {
+                const fakeEvidence = data.evidence || {};
+                htmlContent = `
+                    <div class="data-card" style="margin-top:1rem;">
+                        <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Why this warning was given</h3>
+                        <p>${fakeEvidence.conclusion || 'The image model found a possible counterfeit signal.'}</p>
+                        <div class="data-row"><span class="data-label">Expiry date visible</span><span class="data-value">${fakeEvidence.expiry_visible ? 'Yes' : 'No'}</span></div>
+                        <div class="data-row"><span class="data-label">Licence number visible</span><span class="data-value">${fakeEvidence.licence_visible ? 'Yes' : 'No'}</span></div>
+                        <div class="data-row"><span class="data-label">Database status</span><span class="data-value">${fakeEvidence.database_status || 'Not checked'}</span></div>
+                        ${(fakeEvidence.fake_reasons || []).length ? `<h4>Evidence</h4><ul>${fakeEvidence.fake_reasons.map(reason => `<li>${reason}</li>`).join('')}</ul>` : ''}
+                    </div>
+                `;
+                if (data.detected_text) {
+                    htmlContent += `<div class="data-card" style="margin-top:1rem;"><h3><i class="fa-solid fa-font"></i> Extracted Text (OCR)</h3><div class="extracted-text">${data.detected_text}</div></div>`;
+                }
+                if (data.google_search_url) {
+                    htmlContent += `<div class="data-card" style="margin-top:1rem;"><h3><i class="fa-brands fa-google"></i> Required manual cross-check</h3><p>Compare the extracted name and identifiers with an official manufacturer or regulator source.</p><a href="${data.google_search_url}" target="_blank" rel="noopener noreferrer">Open Google verification search</a></div>`;
+                }
+                resultsPanel.innerHTML = htmlContent;
+                return;
+            }
+
+            const evidence = data.evidence || {};
+            const hasFakeReasons = evidence.fake_reasons && evidence.fake_reasons.length > 0;
 
             // Parse response
             if (data.api_verification && data.api_verification.status === 'VERIFIED') {
@@ -762,6 +852,19 @@
                 `;
             }
 
+            if (hasFakeReasons || evidence.conclusion) {
+                htmlContent += `
+                    <div class="data-card" style="margin-top:1rem;">
+                        <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Verification evidence</h3>
+                        <p>${evidence.conclusion || 'Evidence summary unavailable.'}</p>
+                        <div class="data-row"><span class="data-label">Expiry date visible</span><span class="data-value">${evidence.expiry_visible ? 'Yes' : 'No'}</span></div>
+                        <div class="data-row"><span class="data-label">Licence number visible</span><span class="data-value">${evidence.licence_visible ? 'Yes' : 'No'}</span></div>
+                        <div class="data-row"><span class="data-label">Database status</span><span class="data-value">${evidence.database_status || 'Not checked'}</span></div>
+                        ${hasFakeReasons ? `<h4>Why it may be fake</h4><ul>${evidence.fake_reasons.map(reason => `<li>${reason}</li>`).join('')}</ul>` : ''}
+                    </div>
+                `;
+            }
+
             // OCR Section
             if (data.detected_text) {
                 htmlContent += `
@@ -771,6 +874,10 @@
                         ${data.detected_language ? `<div class="data-row"><span class="data-label">Detected language</span><span class="data-value">${data.detected_language.code} (${(data.detected_language.confidence * 100).toFixed(0)}%)</span></div>` : ''}
                     </div>
                 `;
+            }
+
+            if (data.google_search_url) {
+                htmlContent += `<div class="data-card" style="margin-top:1rem;"><h3><i class="fa-brands fa-google"></i> Required manual cross-check</h3><p>Before relying on this medicine information, search the extracted name and identifiers and compare the official manufacturer or regulator details.</p><a href="${data.google_search_url}" target="_blank" rel="noopener noreferrer">Open Google verification search</a></div>`;
             }
 
             // Usage Info Section (from Groq API)
@@ -794,10 +901,6 @@
                         <div class="data-row"><span class="data-label">Status</span><span class="data-value">Valid on ${data.expiry.checked_on}</span></div>
                     </div>
                 `;
-            }
-
-            if (data.google_search_url) {
-                htmlContent += `<p style="margin-top:1rem;"><a href="${data.google_search_url}" target="_blank" rel="noopener noreferrer">Cross-check name and package identifiers on Google</a></p>`;
             }
 
             // Confidence Ring
@@ -824,6 +927,43 @@
                     ring.style.transition = 'background 1s ease-out';
                 }
             }, 100);
+        }
+
+        function updateAnalysisStatus(data) {
+            let statusClass = 'neutral';
+            let icon = 'fa-circle-info';
+            let title = 'Analysis complete';
+            let message = 'Review the detailed verification result.';
+
+            if (data.status === 'SUSPECTED_FAKE') {
+                statusClass = 'fake';
+                icon = 'fa-triangle-exclamation';
+                title = 'Suspected counterfeit';
+                message = 'Do not use it until a pharmacist, manufacturer, or regulator verifies it.';
+            } else if (data.status === 'EXPIRED') {
+                statusClass = 'fake';
+                icon = 'fa-calendar-xmark';
+                title = 'Medicine expired';
+                message = 'Do not use this medicine.';
+            } else if (data.status === 'OCR_EMPTY') {
+                title = 'Clean photo needed';
+                icon = 'fa-camera';
+                message = 'No readable medicine text was found.';
+            } else if (data.api_verification && data.api_verification.status === 'VERIFIED') {
+                statusClass = 'real';
+                icon = 'fa-circle-check';
+                title = 'Verified database match';
+                message = 'Review the Google cross-check before relying on the medicine information.';
+            } else if (data.ml_analysis && data.ml_analysis.prediction && data.ml_analysis.prediction.toLowerCase() === 'real') {
+                statusClass = 'real';
+                icon = 'fa-circle-check';
+                title = 'Likely authentic';
+                message = 'Visual analysis found no counterfeit signal; complete the manual cross-check.';
+            }
+
+            analysisStatus.className = `analysis-status visible ${statusClass}`;
+            analysisStatus.querySelector('.analysis-status-title').innerHTML = `<i class="fa-solid ${icon}"></i><span>${title}</span>`;
+            analysisStatus.querySelector('.analysis-status-message').textContent = message;
         }
     </script>
 </body>

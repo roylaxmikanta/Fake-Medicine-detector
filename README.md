@@ -34,6 +34,8 @@ The application processes an uploaded JPG, JPEG, or PNG image in this order:
 9. Optionally generates general usage information through Groq.
 10. Provides a Google search link for an additional manual cross-check.
 
+For every readable image, the response reports the extracted OCR text and whether an expiry date or licence/application number was visible. A visual `Fake` prediction includes the reasons supporting that warning. Google is presented as a required manual cross-check before relying on medicine details; the application does not claim that a search result proves authenticity.
+
 Database verification and image classification are supporting signals, not a guarantee of authenticity.
 
 ## Prerequisites
@@ -166,8 +168,9 @@ Important response statuses:
 - `OK`: OCR and analysis completed without an expired date.
 - `OCR_EMPTY`: no readable text was extracted; upload a cleaner image.
 - `EXPIRED`: the detected expiry date has passed; do not use the medicine.
+- `SUSPECTED_FAKE`: the image model detected a counterfeit signal; usage guidance is withheld until professional verification.
 
-Relevant response fields include `detected_text`, `detected_language`, `ocr_languages`, `expiry`, `api_verification`, `ml_analysis`, `usage_info`, and `google_search_url`.
+Relevant response fields include `detected_text`, `detected_language`, `ocr_languages`, `expiry`, `evidence`, `api_verification`, `ml_analysis`, `usage_info`, and `google_search_url`. The `evidence` object reports `expiry_visible`, `licence_visible`, `database_status`, `extracted_text`, and `fake_reasons` when applicable.
 
 ## Configuration
 
@@ -257,6 +260,7 @@ uvicorn api.main:app --reload --port 8001
 - Language support depends on EasyOCR's available models. "All languages" cannot be guaranteed by a single OCR engine.
 - FDA and RxNorm coverage varies by country, product type, and brand.
 - A database match does not prove that the photographed package is genuine.
+- A visual `Fake` result is an investigation warning, not a laboratory or regulatory determination; the response explains the available supporting signals.
 - The image classifier is only as reliable as its training data and evaluation quality.
 - The application cannot confirm seals, tampering, storage conditions, supply-chain provenance, or physical contents.
 - Batch-number verification is limited by public database fields available for a product.
