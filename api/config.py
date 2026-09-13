@@ -70,8 +70,9 @@ CLASS_LABELS = {
 # OCR SETTINGS
 # ==========================================
 
-# Languages for EasyOCR
-OCR_LANGUAGES = ['en']  # Add more: ['en', 'hi', 'bn'] for Hindi, Bengali
+# Languages loaded by EasyOCR. English is retained because medicine packaging
+# commonly mixes a local language with Latin-script names and identifiers.
+OCR_LANGUAGES = ['en', 'hi', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'ar']
 
 # Minimum OCR confidence to accept text
 OCR_MIN_CONFIDENCE = 0.5  # 50%

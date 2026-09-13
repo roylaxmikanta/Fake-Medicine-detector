@@ -768,6 +768,7 @@
                     <div class="data-card" style="margin-top:1rem;">
                         <h3><i class="fa-solid fa-font"></i> Extracted Text (OCR)</h3>
                         <div class="extracted-text">${data.detected_text}</div>
+                        ${data.detected_language ? `<div class="data-row"><span class="data-label">Detected language</span><span class="data-value">${data.detected_language.code} (${(data.detected_language.confidence * 100).toFixed(0)}%)</span></div>` : ''}
                     </div>
                 `;
             }

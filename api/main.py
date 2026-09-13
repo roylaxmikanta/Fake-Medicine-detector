@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import easyocr
+from langdetect import DetectorFactory, detect_langs
 import pickle
 import numpy as np
 import re
@@ -25,6 +26,9 @@ groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Adjust imports from local module
 from .api_verifier import MedicineAPIVerifier
+from .config import OCR_LANGUAGES, OCR_MIN_CONFIDENCE, OCR_USE_GPU
+
+DetectorFactory.seed = 42
 
 app = FastAPI(title="Medicine Authenticity Checker API")
 
@@ -45,6 +49,7 @@ IMG_SIZE = 150
 # Global resources
 model = None
 reader = None
+ocr_languages_loaded = []
 api_verifier = None
 class_names = None
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -95,6 +100,21 @@ def build_google_search_url(text, api_result):
     query = ' '.join(term for term in terms if term).strip() or text
     return f"https://www.google.com/search?q={quote_plus(query + ' medicine verification')}"
 
+
+def detect_text_language(text):
+    """Identify the dominant language after OCR, without changing the OCR text."""
+    try:
+        candidates = detect_langs(text)
+        if candidates:
+            best = candidates[0]
+            return {
+                'code': best.lang,
+                'confidence': round(float(best.prob), 3),
+            }
+    except Exception:
+        pass
+    return {'code': 'unknown', 'confidence': 0.0}
+
 test_transforms = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
@@ -103,7 +123,7 @@ test_transforms = transforms.Compose([
 
 @app.on_event("startup")
 async def startup_event():
-    global model, reader, api_verifier, class_names
+    global model, reader, api_verifier, class_names, ocr_languages_loaded
     print("Loading resources...")
     
     # Load preprocessing metadata
@@ -128,9 +148,19 @@ async def startup_event():
 
     # Load EasyOCR
     try:
-        reader = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
+        reader = easyocr.Reader(
+            OCR_LANGUAGES,
+            gpu=OCR_USE_GPU and torch.cuda.is_available()
+        )
+        ocr_languages_loaded = OCR_LANGUAGES
     except Exception as e:
-        print(f"Error loading EasyOCR: {e}")
+        print(f"Multilingual EasyOCR setup failed: {e}")
+        try:
+            reader = easyocr.Reader(['en'], gpu=False)
+            ocr_languages_loaded = ['en']
+            print("Falling back to English OCR.")
+        except Exception as fallback_error:
+            print(f"Error loading EasyOCR fallback: {fallback_error}")
 
     # Load API Verifier
     api_verifier = MedicineAPIVerifier()
@@ -141,7 +171,8 @@ async def health_check():
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "ocr_loaded": reader is not None
+        "ocr_loaded": reader is not None,
+        "ocr_languages": ocr_languages_loaded
     }
 
 @app.post("/predict")
@@ -161,7 +192,7 @@ async def predict(file: UploadFile = File(...)):
         try:
             img_array = np.array(image)
             ocr_results = reader.readtext(img_array)
-            texts = [det[1] for det in ocr_results if det[2] > 0.5]
+            texts = [det[1] for det in ocr_results if det[2] > OCR_MIN_CONFIDENCE]
             if texts:
                 detected_text = ' '.join(texts)
         except Exception as e:
@@ -172,12 +203,15 @@ async def predict(file: UploadFile = File(...)):
             "status": "OCR_EMPTY",
             "message": "No readable text was extracted. Please upload a clean, well-lit photo showing the medicine name and expiry date.",
             "detected_text": None,
+            "detected_language": None,
+            "ocr_languages": ocr_languages_loaded,
             "api_verification": None,
             "ml_analysis": None,
             "usage_info": None,
         })
 
     expiry_info = extract_expiry_date(detected_text)
+    detected_language = detect_text_language(detected_text)
 
     # 2. API Database Check
     api_result = None
@@ -224,11 +258,11 @@ async def predict(file: UploadFile = File(...)):
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a careful medical information assistant. Explain what this medicine is commonly used for and give brief, general instructions for how it is usually taken or applied. Do not prescribe, do not invent a dose, and advise following the package label or a pharmacist. Keep it to 2 or 3 concise sentences."
+                            "content": "You are a careful medical information assistant. Explain what this medicine is commonly used for and give brief, general instructions for how it is usually taken or applied. Reply in the detected language when practical. Do not prescribe, do not invent a dose, and advise following the package label or a pharmacist. Keep it to 2 or 3 concise sentences."
                         },
                         {
                             "role": "user",
-                            "content": f"What is {med_name} used for, and how is it generally used?"
+                            "content": f"Detected language: {detected_language['code']}. What is {med_name} used for, and how is it generally used?"
                         }
                     ],
                     model="llama3-8b-8192",
@@ -246,6 +280,8 @@ async def predict(file: UploadFile = File(...)):
         "status": "EXPIRED" if is_expired else "OK",
         "message": "This medicine is expired. Do not use it; consult a pharmacist for safe disposal and replacement." if is_expired else None,
         "detected_text": detected_text,
+        "detected_language": detected_language,
+        "ocr_languages": ocr_languages_loaded,
         "expiry": expiry_info,
         "api_verification": api_result,
         "ml_analysis": ml_result,

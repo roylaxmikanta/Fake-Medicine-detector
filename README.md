@@ -24,12 +24,12 @@ Medicine Authenticity Checker is an educational FastAPI application that analyze
 The application processes an uploaded JPG, JPEG, or PNG image in this order:
 
 1. Validates the uploaded file.
-2. Extracts visible text with EasyOCR.
+2. Extracts visible text with multilingual EasyOCR.
 3. Stops with `OCR_EMPTY` when no readable text is found and asks for a clearer image.
 4. Detects expiry labels such as `EXP 09/2026` or `EXP 09/13/2026`. A month-only expiry date is treated as valid through the final day of that month.
 5. Returns `EXPIRED` when the detected expiry date has passed. Users are advised not to use the medicine.
 6. Extracts medicine names and available identifiers, including licence/application numbers, batch numbers, and NDC values.
-7. Checks structured identifiers and medicine names against FDA OpenFDA and RxNorm.
+7. Identifies the dominant language of the OCR text and checks structured identifiers and medicine names against FDA OpenFDA and RxNorm.
 8. Runs the MobileNetV2 image classifier as a visual analysis fallback.
 9. Optionally generates general usage information through Groq.
 10. Provides a Google search link for an additional manual cross-check.
@@ -83,6 +83,8 @@ Useful development URLs:
 - Health check: `http://127.0.0.1:8000/health`
 
 The first startup may take longer because EasyOCR can download its language model.
+
+The default OCR configuration loads English, Hindi, French, German, Spanish, Italian, Portuguese, Russian, and Arabic. These languages are selected in [api/config.py](api/config.py). EasyOCR must support a language before it can recognize that script; add a supported language code to `OCR_LANGUAGES` and restart the API when expanding coverage. Loading many languages increases startup time and memory use.
 
 ## Use the Web Interface
 
@@ -165,7 +167,7 @@ Important response statuses:
 - `OCR_EMPTY`: no readable text was extracted; upload a cleaner image.
 - `EXPIRED`: the detected expiry date has passed; do not use the medicine.
 
-Relevant response fields include `detected_text`, `expiry`, `api_verification`, `ml_analysis`, `usage_info`, and `google_search_url`.
+Relevant response fields include `detected_text`, `detected_language`, `ocr_languages`, `expiry`, `api_verification`, `ml_analysis`, `usage_info`, and `google_search_url`.
 
 ## Configuration
 
@@ -251,6 +253,8 @@ uvicorn api.main:app --reload --port 8001
 ## Limitations and Safety
 
 - OCR can misread small, rotated, reflective, or low-quality text.
+- Automatic language identification describes the dominant language in extracted text; mixed-language packaging may produce an approximate result.
+- Language support depends on EasyOCR's available models. "All languages" cannot be guaranteed by a single OCR engine.
 - FDA and RxNorm coverage varies by country, product type, and brand.
 - A database match does not prove that the photographed package is genuine.
 - The image classifier is only as reliable as its training data and evaluation quality.
