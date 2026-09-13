@@ -10,6 +10,10 @@ from fastapi.staticfiles import StaticFiles
 import easyocr
 import pickle
 import numpy as np
+import re
+import calendar
+from datetime import date, datetime
+from urllib.parse import quote_plus
 from dotenv import load_dotenv
 import groq
 from dotenv import load_dotenv
@@ -44,6 +48,52 @@ reader = None
 api_verifier = None
 class_names = None
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def extract_expiry_date(text):
+    """Return the expiry date and whether it has passed, using the package text."""
+    patterns = [
+        r'(?i)\b(?:exp(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b',
+        r'(?i)\b(?:exp(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{1,2})[./-](\d{2,4})\b',
+        r'(?i)\b(?:exp(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{4})[./-](\d{1,2})\b',
+    ]
+    for index, pattern in enumerate(patterns):
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        values = [int(value) for value in match.groups()]
+        try:
+            if index == 2:
+                year, month = values
+                expiry = date(year, month, calendar.monthrange(year, month)[1])
+                display = f"{year:04d}-{month:02d}"
+            elif index == 0:
+                month, day, year = values
+                year += 2000 if year < 100 else 0
+                expiry = date(year, month, day)
+                display = expiry.isoformat()
+            else:
+                month, year = values
+                year += 2000 if year < 100 else 0
+                expiry = date(year, month, calendar.monthrange(year, month)[1])
+                display = f"{year:04d}-{month:02d}"
+            return {
+                'value': display,
+                'expired': expiry < date.today(),
+                'checked_on': date.today().isoformat(),
+            }
+        except ValueError:
+            continue
+    return None
+
+
+def build_google_search_url(text, api_result):
+    medicine_name = api_result.get('medicine_name', '') if api_result else ''
+    identifiers = api_result.get('identifiers', {}) if api_result else {}
+    terms = [medicine_name]
+    terms.extend(value for values in identifiers.values() for value in values)
+    query = ' '.join(term for term in terms if term).strip() or text
+    return f"https://www.google.com/search?q={quote_plus(query + ' medicine verification')}"
 
 test_transforms = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
@@ -117,6 +167,18 @@ async def predict(file: UploadFile = File(...)):
         except Exception as e:
             print(f"OCR Error: {e}")
 
+    if not detected_text:
+        return JSONResponse(content={
+            "status": "OCR_EMPTY",
+            "message": "No readable text was extracted. Please upload a clean, well-lit photo showing the medicine name and expiry date.",
+            "detected_text": None,
+            "api_verification": None,
+            "ml_analysis": None,
+            "usage_info": None,
+        })
+
+    expiry_info = extract_expiry_date(detected_text)
+
     # 2. API Database Check
     api_result = None
     if detected_text and api_verifier is not None:
@@ -140,12 +202,15 @@ async def predict(file: UploadFile = File(...)):
         except Exception as e:
             ml_result = {"error": str(e)}
 
+    google_search_url = build_google_search_url(detected_text, api_result)
+    is_expired = expiry_info and expiry_info['expired']
+
     # 4. Fetch Usage Information (Groq)
     usage_info = None
     is_real_api = api_result and api_result.get('status') == 'VERIFIED'
     is_real_ml = ml_result and ml_result.get('prediction', '').lower() == 'real'
     
-    if (is_real_api or is_real_ml) and groq_client:
+    if (is_real_api or is_real_ml) and not is_expired and groq_client:
         med_name = ""
         if is_real_api:
             med_name = api_result.get('medicine_name', '')
@@ -159,11 +224,11 @@ async def predict(file: UploadFile = File(...)):
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a helpful medical assistant. Describe what the given medicine is used for in 1 or 2 concise, easy-to-understand sentences."
+                            "content": "You are a careful medical information assistant. Explain what this medicine is commonly used for and give brief, general instructions for how it is usually taken or applied. Do not prescribe, do not invent a dose, and advise following the package label or a pharmacist. Keep it to 2 or 3 concise sentences."
                         },
                         {
                             "role": "user",
-                            "content": f"What is the medicine {med_name} used for?"
+                            "content": f"What is {med_name} used for, and how is it generally used?"
                         }
                     ],
                     model="llama3-8b-8192",
@@ -174,10 +239,17 @@ async def predict(file: UploadFile = File(...)):
             except Exception as e:
                 print(f"Groq API Error: {e}")
 
+    if not usage_info and is_real_api and not is_expired:
+        usage_info = api_result.get('indications_and_usage') or api_result.get('dosage_and_administration')
+
     return JSONResponse(content={
+        "status": "EXPIRED" if is_expired else "OK",
+        "message": "This medicine is expired. Do not use it; consult a pharmacist for safe disposal and replacement." if is_expired else None,
         "detected_text": detected_text,
+        "expiry": expiry_info,
         "api_verification": api_result,
         "ml_analysis": ml_result,
-        "usage_info": usage_info
+        "usage_info": usage_info if not is_expired else None,
+        "google_search_url": google_search_url
     })
 

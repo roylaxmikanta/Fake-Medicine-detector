@@ -646,6 +646,41 @@
             let verificationSource = "";
             let htmlContent = "";
 
+            if (data.status === 'OCR_EMPTY') {
+                htmlContent = `
+                    <div class="status-banner fake">
+                        <i class="fa-solid fa-camera status-icon"></i>
+                        <div class="status-info">
+                            <h2>Clean photo needed</h2>
+                            <p>${data.message}</p>
+                        </div>
+                    </div>
+                `;
+                resultsPanel.innerHTML = htmlContent;
+                return;
+            }
+
+            if (data.status === 'EXPIRED') {
+                htmlContent = `
+                    <div class="status-banner fake">
+                        <i class="fa-solid fa-calendar-xmark status-icon"></i>
+                        <div class="status-info">
+                            <h2>Medicine expired</h2>
+                            <p>${data.message}</p>
+                        </div>
+                    </div>
+                    ${data.expiry ? `<div class="data-card"><h3><i class="fa-solid fa-calendar-xmark"></i> Expiry check</h3><div class="data-row"><span class="data-label">Expiry date</span><span class="data-value">${data.expiry.value}</span></div><div class="data-row"><span class="data-label">Checked on</span><span class="data-value">${data.expiry.checked_on}</span></div></div>` : ''}
+                `;
+                if (data.detected_text) {
+                    htmlContent += `<div class="data-card" style="margin-top:1rem;"><h3><i class="fa-solid fa-font"></i> Extracted Text (OCR)</h3><div class="extracted-text">${data.detected_text}</div></div>`;
+                }
+                if (data.google_search_url) {
+                    htmlContent += `<p style="margin-top:1rem;"><a href="${data.google_search_url}" target="_blank" rel="noopener noreferrer">Cross-check this medicine on Google</a></p>`;
+                }
+                resultsPanel.innerHTML = htmlContent;
+                return;
+            }
+
             // Parse response
             if (data.api_verification && data.api_verification.status === 'VERIFIED') {
                 isReal = true;
@@ -677,6 +712,7 @@
                                 <span class="data-label">Manufacturer</span>
                                 <span class="data-value">${data.api_verification.manufacturer}</span>
                             </div>` : ''}
+                            ${data.api_verification.identifiers ? `<div class="data-row"><span class="data-label">Package identifiers</span><span class="data-value">${Object.values(data.api_verification.identifiers).flat().join(', ') || 'Not detected'}</span></div>` : ''}
                         </div>
                     </div>
                 `;
@@ -747,6 +783,20 @@
                         </div>
                     </div>
                 `;
+            }
+
+            if (data.expiry) {
+                htmlContent += `
+                    <div class="data-card" style="margin-top:1rem;">
+                        <h3><i class="fa-solid fa-calendar-check"></i> Expiry check</h3>
+                        <div class="data-row"><span class="data-label">Expiry date</span><span class="data-value">${data.expiry.value}</span></div>
+                        <div class="data-row"><span class="data-label">Status</span><span class="data-value">Valid on ${data.expiry.checked_on}</span></div>
+                    </div>
+                `;
+            }
+
+            if (data.google_search_url) {
+                htmlContent += `<p style="margin-top:1rem;"><a href="${data.google_search_url}" target="_blank" rel="noopener noreferrer">Cross-check name and package identifiers on Google</a></p>`;
             }
 
             // Confidence Ring

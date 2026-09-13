@@ -5,6 +5,7 @@ import re
 from typing import Dict, Optional, List
 from functools import lru_cache
 import time
+from urllib.parse import quote_plus
 
 class MedicineAPIVerifier:
     """
@@ -134,6 +135,18 @@ class MedicineAPIVerifier:
                 names.append(match)
         
         return names
+
+    def extract_identifiers(self, text: str) -> Dict[str, List[str]]:
+        """Extract package identifiers that can strengthen a name-only match."""
+        patterns = {
+            'licence_numbers': r'(?i)\b(?:licen[cs]e|lic|reg(?:istration)?)[\s#:.-]*([A-Z0-9][A-Z0-9./-]{3,})',
+            'batch_numbers': r'(?i)\b(?:batch|lot)\s*[#:.-]*\s*([A-Z0-9][A-Z0-9./-]{2,})',
+            'ndc_numbers': r'(?i)\b(?:ndc|product\s*ndc|package\s*ndc)\s*[#:.-]*\s*([0-9-]{4,})',
+        }
+        return {
+            key: sorted(set(re.findall(pattern, text)))
+            for key, pattern in patterns.items()
+        }
     
     @lru_cache(maxsize=100)
     def verify_with_fda(self, medicine_name: str) -> Optional[Dict]:
@@ -171,11 +184,43 @@ class MedicineAPIVerifier:
                             'manufacturer': openfda.get('manufacturer_name', ['Unknown'])[0],
                             'type': openfda.get('product_type', ['Unknown'])[0],
                             'route': openfda.get('route', ['N/A'])[0],
+                            'application_number': openfda.get('application_number', ['N/A'])[0],
+                            'package_ndc': openfda.get('package_ndc', ['N/A'])[0],
+                            'indications_and_usage': result.get('indications_and_usage', [''])[0],
+                            'dosage_and_administration': result.get('dosage_and_administration', [''])[0],
                             'confidence': 'HIGH'
                         }
             except Exception as e:
                 self._log(f"FDA API Error: {str(e)}")
         
+        return None
+
+    @lru_cache(maxsize=100)
+    def verify_fda_identifier(self, field: str, identifier: str) -> Optional[Dict]:
+        """Verify an OCR identifier against FDA's structured package metadata."""
+        allowed_fields = {'application_number', 'package_ndc', 'product_ndc'}
+        if field not in allowed_fields:
+            return None
+        try:
+            url = f"{self.fda_base}?search=openfda.{field}:{identifier}&limit=1"
+            response = self._make_request(url)
+            if response and response.status_code == 200:
+                results = response.json().get('results', [])
+                if results:
+                    result = results[0]
+                    openfda = result.get('openfda', {})
+                    return {
+                        'status': 'VERIFIED',
+                        'source': 'FDA Database',
+                        'medicine_name': openfda.get('brand_name', [identifier])[0],
+                        'brand_name': openfda.get('brand_name', ['N/A'])[0],
+                        'generic_name': openfda.get('generic_name', ['N/A'])[0],
+                        'manufacturer': openfda.get('manufacturer_name', ['Unknown'])[0],
+                        'matched_identifier': f'{field}: {identifier}',
+                        'confidence': 'HIGH'
+                    }
+        except Exception as e:
+            self._log(f"FDA identifier lookup error: {str(e)}")
         return None
     
     @lru_cache(maxsize=100)
@@ -236,6 +281,20 @@ class MedicineAPIVerifier:
             self._log(f"Cache hit for: {text}")
             return self._cache[cache_key]
         
+        identifiers = self.extract_identifiers(text)
+
+        identifier_fields = {
+            'licence_numbers': 'application_number',
+            'ndc_numbers': 'package_ndc',
+        }
+        for identifier_key, fda_field in identifier_fields.items():
+            for identifier in identifiers[identifier_key]:
+                identifier_result = self.verify_fda_identifier(fda_field, identifier)
+                if identifier_result:
+                    identifier_result['identifiers'] = identifiers
+                    self._cache[cache_key] = identifier_result
+                    return identifier_result
+
         # Extract all possible medicine names
         possible_names = self.extract_all_possible_names(text)
         self._log(f"Searching for: {possible_names}")
@@ -244,6 +303,7 @@ class MedicineAPIVerifier:
         for name in possible_names:
             fda_result = self.verify_with_fda(name)
             if fda_result:
+                fda_result['identifiers'] = identifiers
                 self._cache[cache_key] = fda_result
                 return fda_result
         
@@ -251,6 +311,7 @@ class MedicineAPIVerifier:
         for name in possible_names:
             rxnorm_result = self.verify_with_rxnorm(name)
             if rxnorm_result:
+                rxnorm_result['identifiers'] = identifiers
                 self._cache[cache_key] = rxnorm_result
                 return rxnorm_result
         
@@ -260,6 +321,7 @@ class MedicineAPIVerifier:
             'source': 'No API Match',
             'medicine_name': possible_names[0] if possible_names else text,
             'searched_names': possible_names,
+            'identifiers': identifiers,
             'message': 'Not found in FDA/RxNorm databases. May be non-US medicine or local brand.',
             'confidence': 'UNKNOWN'
         }
@@ -272,6 +334,7 @@ class MedicineAPIVerifier:
         self._cache.clear()
         self.verify_with_fda.cache_clear()
         self.verify_with_rxnorm.cache_clear()
+        self.verify_fda_identifier.cache_clear()
         self._log("Cache cleared")
 
 

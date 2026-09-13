@@ -1,57 +1,102 @@
 # Medicine Authenticity Checker
 
-Medicine Authenticity Checker is a FastAPI application that analyzes a medicine-package image using OCR, public medicine databases, and a PyTorch image-classification model.
+Medicine Authenticity Checker is an educational FastAPI application that analyzes medicine-package images with OCR, public medicine databases, and a PyTorch image classifier. It helps identify warning signs such as unreadable packaging, expired dates, and missing database matches.
 
-## What It Does
+> This project is not a medical device and does not prove that a medicine is safe or authentic. Always confirm medicine details with a licensed pharmacist, doctor, manufacturer, or local regulator.
 
-1. Accepts a JPG, JPEG, or PNG medicine image.
+## Contents
+
+- [How It Works](#how-it-works)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Run the Application](#run-the-application)
+- [Use the Web Interface](#use-the-web-interface)
+- [Train the Image Model](#train-the-image-model)
+- [API Reference](#api-reference)
+- [Configuration](#configuration)
+- [Docker](#docker)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [Limitations](#limitations-and-safety)
+
+## How It Works
+
+The application processes an uploaded JPG, JPEG, or PNG image in this order:
+
+1. Validates the uploaded file.
 2. Extracts visible text with EasyOCR.
-3. Checks detected medicine names against the FDA OpenFDA label API and RxNorm.
-4. Uses the trained MobileNetV2 model as an image-based fallback.
-5. Optionally returns a short medicine-use description through Groq.
+3. Stops with `OCR_EMPTY` when no readable text is found and asks for a clearer image.
+4. Detects expiry labels such as `EXP 09/2026` or `EXP 09/13/2026`. A month-only expiry date is treated as valid through the final day of that month.
+5. Returns `EXPIRED` when the detected expiry date has passed. Users are advised not to use the medicine.
+6. Extracts medicine names and available identifiers, including licence/application numbers, batch numbers, and NDC values.
+7. Checks structured identifiers and medicine names against FDA OpenFDA and RxNorm.
+8. Runs the MobileNetV2 image classifier as a visual analysis fallback.
+9. Optionally generates general usage information through Groq.
+10. Provides a Google search link for an additional manual cross-check.
 
-This tool is for experimentation and education. It is not a substitute for a pharmacist, doctor, or regulatory verification service.
+Database verification and image classification are supporting signals, not a guarantee of authenticity.
 
-## Features
+## Prerequisites
 
-- FastAPI REST API with an integrated browser UI.
-- EasyOCR text extraction.
-- FDA and RxNorm verification with retry and caching logic.
-- PyTorch MobileNetV2 classifier for `Fake` and `Real` images.
-- CPU and CUDA inference support where the installed PyTorch build supports it.
-- Docker support.
-- Optional Groq-generated medicine usage information.
-
-## Requirements
-
-- Python 3.10 or newer.
-- pip.
+- Windows, Linux, or macOS.
+- Python 3.10 or newer. Python 3.11 is used by the Docker image.
+- Git, if cloning the repository.
 - Internet access for EasyOCR model downloads and FDA/RxNorm requests.
-- Optional NVIDIA GPU with a compatible CUDA-enabled PyTorch installation.
+- At least 2 GB of available memory for local inference.
+- Docker Desktop, if using Docker.
+- An NVIDIA GPU is optional. The application automatically uses CUDA when the installed PyTorch build supports it.
 
-## Run Locally
+## Installation
 
-From the repository root:
+Open PowerShell in the repository root:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+If PowerShell blocks activation for the current session, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+```
+
+Then activate the environment again. Keep the terminal activated for the remaining commands.
+
+## Run the Application
+
+Start the FastAPI server from the repository root:
+
+```powershell
 uvicorn api.main:app --reload
 ```
 
-Open the web interface at `http://127.0.0.1:8000/`.
+Open the application in a browser at `http://127.0.0.1:8000/`.
 
-API documentation is available at `http://127.0.0.1:8000/docs`.
+Useful development URLs:
 
-On Windows, `run.bat` can also be used after the virtual environment and dependencies have been configured. The batch file may require updating if the repository is moved.
+- Web interface: `http://127.0.0.1:8000/`
+- Swagger API documentation: `http://127.0.0.1:8000/docs`
+- ReDoc API documentation: `http://127.0.0.1:8000/redoc`
+- Health check: `http://127.0.0.1:8000/health`
 
-## A-to-Z Workflow
+The first startup may take longer because EasyOCR can download its language model.
 
-### 1. Prepare the Dataset
+## Use the Web Interface
 
-Training images are organized by class:
+1. Start the server.
+2. Open `http://127.0.0.1:8000/`.
+3. Upload a sharp, well-lit image of the medicine package.
+4. Ensure the medicine name, expiry date, and package identifiers are visible.
+5. Review the OCR text, expiry result, database result, image-model result, usage information, and Google cross-check link.
+
+For the best OCR result, photograph the package straight on, avoid glare, and do not crop out the expiry or licence area.
+
+## Train the Image Model
+
+Training images must be arranged as follows:
 
 ```text
 data/
@@ -59,125 +104,43 @@ data/
 └── Real/
 ```
 
-The training pipeline reads these folders, resizes images to `150 x 150`, converts them to tensors, normalizes them with ImageNet values, and creates training and validation sets.
+Place representative images in both directories. The training script uses `ImageFolder`, so the directory names become the class labels.
 
-### 2. Train the Model
-
-Run the training script from the repository root:
+Run training from the repository root:
 
 ```powershell
 python src/train.py
 ```
 
-The script trains a MobileNetV2 classifier and writes:
+The script resizes images to `150 x 150`, applies training augmentation, splits data into training/validation/test sets, trains MobileNetV2 for five epochs, and saves the best model by validation accuracy.
+
+Generated files:
 
 ```text
 models/medicine_model.pt
 models/preprocessing.pkl
+confusion_matrix.png
 ```
 
-The `.pt` file contains the model weights. The preprocessing file contains class metadata such as `Fake` and `Real`.
+Restart the API after training so it loads the new model files.
 
-### 3. Start the API
+### Notebook Workflow
 
-When the API starts, `api/main.py` loads the model, preprocessing metadata, EasyOCR, and API verifier. The browser interface is served from `api/static/index.html`.
+The notebook at [notebooks/train_model.ipynb](notebooks/train_model.ipynb) contains OCR and TF-IDF experiments. It is separate from the production API model-training script.
 
-### 4. Process an Uploaded Image
+Run notebook cells in order. The OCR-processing cell must run before the text-classification cells, and the generated dataset must contain non-empty `Text` and `Label` columns. Notebook dependencies can be installed from its first cell.
 
-The prediction flow is:
+## API Reference
 
-```text
-Image upload
-    -> Image validation
-    -> EasyOCR text extraction
-    -> Medicine-name cleaning
-    -> FDA and RxNorm verification
-    -> MobileNetV2 Fake/Real prediction
-    -> Optional Groq usage description
-    -> JSON response
-```
+### `GET /health`
 
-### 5. Configure Secrets
-
-Create `.env` locally. Never commit it:
-
-```env
-HF_API_KEY=your_huggingface_key
-GROQ_API_KEY=your_groq_key
-TAVILY_API_KEY=your_tavily_key
-```
-
-### 6. Run Locally
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-uvicorn api.main:app --reload
-```
-
-Open `http://127.0.0.1:8000/`. Check the service with:
+Check whether the model and OCR resources loaded successfully:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-### 7. Test the API
-
-```powershell
-curl.exe -X POST "http://127.0.0.1:8000/predict" `
-  -F "file=@data/Real/images01.jpg"
-```
-
-### 8. Build and Run with Docker
-
-The Dockerfile installs CPU-only PyTorch and copies only runtime files.
-
-```powershell
-docker build -t fake-medicine-api:slim .
-docker run -d --name fake-medicine-api -p 8000:8000 --env-file .env fake-medicine-api:slim
-```
-
-Open `http://localhost:8000` and view logs with `docker logs -f fake-medicine-api`.
-
-### 9. Publish the Docker/FastAPI Project to GitHub
-
-1. Keep API keys in a local `.env` file only. The `.env` file is ignored by Git:
-
-  ```env
-  HF_API_KEY=your_huggingface_key
-  GROQ_API_KEY=your_groq_key
-  TAVILY_API_KEY=your_tavily_key
-  ```
-
-2. Commit and push the source code:
-
-  ```powershell
-  git add .
-  git commit -m "Prepare application for deployment"
-  git push origin main
-  ```
-
-### 10. Deploy the Docker/FastAPI Container
-
-Use a Docker-compatible hosting provider with at least 2 GB RAM because PyTorch and EasyOCR load at startup. Configure the provider to build from the repository `Dockerfile`, expose container port `8000`, and provide the environment variables listed above as secrets.
-
-After deployment, verify the public URL:
-
-```text
-https://YOUR-SERVICE-URL/health
-```
-
-The response should contain `"status": "healthy"`, `"model_loaded": true`, and `"ocr_loaded": true`.
-
-The project does not include Vercel, Streamlit, or Hugging Face deployment configuration. Never upload `.env` or exposed API keys to GitHub.
-
-## API Endpoints
-
-### `GET /health`
-
-Returns application and resource status:
+Example response:
 
 ```json
 {
@@ -189,73 +152,109 @@ Returns application and resource status:
 
 ### `POST /predict`
 
-Upload a medicine image using the `file` form field:
+Upload an image using the `file` form field:
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/predict" `
-  -F "file=@data/Real/images01.jpg"
+  -F "file=@data/Real/example.jpg"
 ```
 
-The response can contain `detected_text`, `api_verification`, `ml_analysis`, and optional `usage_info` fields. Supported upload extensions are `.jpg`, `.jpeg`, and `.png`.
+Important response statuses:
 
-## Optional Groq Configuration
+- `OK`: OCR and analysis completed without an expired date.
+- `OCR_EMPTY`: no readable text was extracted; upload a cleaner image.
+- `EXPIRED`: the detected expiry date has passed; do not use the medicine.
 
-Create a `.env` file in the repository root:
+Relevant response fields include `detected_text`, `expiry`, `api_verification`, `ml_analysis`, `usage_info`, and `google_search_url`.
+
+## Configuration
+
+Create a `.env` file in the repository root only when optional Groq responses are required:
 
 ```env
-GROQ_API_KEY=your_api_key_here
+GROQ_API_KEY=your_groq_api_key
 ```
 
-The API still starts without this variable. Only the optional `usage_info` response is disabled. Do not commit `.env` or API keys.
+The application works without this variable. Without it, the API still performs OCR, expiry detection, database checks, image analysis, and Google-link generation. Never commit `.env` or expose API keys.
+
+Key settings are defined in [api/config.py](api/config.py), including API timeouts, OCR confidence, supported labels, and ignored packaging terms.
+
+## Docker
+
+The Dockerfile uses Python 3.11 and CPU-only PyTorch. Build the image from the repository root:
+
+```powershell
+docker build -t fake-medicine-api:latest .
+```
+
+Run the container:
+
+```powershell
+docker run --rm --name fake-medicine-api -p 8000:8000 --env-file .env fake-medicine-api:latest
+```
+
+If `.env` does not exist, omit `--env-file .env`:
+
+```powershell
+docker run --rm --name fake-medicine-api -p 8000:8000 fake-medicine-api:latest
+```
+
+Open `http://localhost:8000/`. The container copies `api/` and `models/`, so `models/medicine_model.pt` must exist before building the image. The training dataset is not included in the runtime image.
 
 ## Project Structure
 
 ```text
 Fake-Mediceine-detector/
 ├── api/
-│   ├── main.py              # FastAPI app, OCR, model inference, endpoints
-│   ├── api_verifier.py      # FDA and RxNorm verification
-│   ├── config.py            # API and model configuration
+│   ├── main.py              # FastAPI routes, OCR, expiry checks, inference
+│   ├── api_verifier.py      # FDA/RxNorm and identifier verification
+│   ├── config.py            # API, OCR, and verification settings
 │   └── static/index.html    # Browser interface
 ├── data/
-│   ├── Real/                # Real medicine images
-│   ├── Fake/                # Fake medicine images
-│   └── *.csv                # Dataset and OCR exports
+│   ├── Fake/                # Training images for the Fake class
+│   ├── Real/                # Training images for the Real class
+│   └── *.csv                # OCR and dataset exports
 ├── models/
-│   └── medicine_model.pt   # PyTorch model weights
+│   ├── medicine_model.pt    # MobileNetV2 weights
+│   └── preprocessing.pkl    # Saved class-name metadata
 ├── notebooks/
-│   └── train_model.ipynb    # OCR and text-classification experiments
+│   └── train_model.ipynb    # OCR and text-model experiments
 ├── src/
-│   └── train.py             # MobileNetV2 image-model training script
+│   └── train.py             # Image-model training script
 ├── Dockerfile
 ├── requirements.txt
 └── README.md
 ```
 
-## Training the Image Model
+## Troubleshooting
 
-The training script expects this folder structure:
+### The server cannot load the model
 
-```text
-data/
-├── Fake/
-└── Real/
-```
+Confirm that `models/medicine_model.pt` and `models/preprocessing.pkl` exist. If they are missing, arrange the dataset and run `python src/train.py`.
 
-Run it from the repository root:
+### EasyOCR fails or returns no text
+
+Check the internet connection during the first startup, then upload a sharper image with better lighting and less glare. The UI intentionally asks for a clean photo when no text is detected.
+
+### FDA or RxNorm returns no match
+
+These services do not contain every country-specific product or brand. Check the medicine name, licence number, batch number, and NDC manually using the supplied Google link, then confirm with a pharmacist or the manufacturer.
+
+### Port 8000 is already in use
+
+Run the server on another port:
 
 ```powershell
-python src/train.py
+uvicorn api.main:app --reload --port 8001
 ```
 
-The script saves trained weights to `models/medicine_model.pt` and class metadata to `models/preprocessing.pkl`. It also writes `confusion_matrix.png` in the repository root.
+## Limitations and Safety
 
-The notebook is for OCR and TF-IDF experiments. Its first cell installs notebook dependencies with `%pip`; restart the notebook kernel after installation if imports were previously failing. Run the OCR-processing cell before the training cell and confirm that the generated `Text` column contains detected text.
-
-## Limitations
-
-- OCR quality depends on image clarity, lighting, orientation, and packaging language.
-- FDA and RxNorm do not cover every country, brand, supplement, or traditional medicine.
-- The image model is only as reliable as its training data and evaluation results.
-- The application does not verify physical packaging, batch numbers, seals, or supply-chain provenance.
-- External API responses may be unavailable or rate-limited.
+- OCR can misread small, rotated, reflective, or low-quality text.
+- FDA and RxNorm coverage varies by country, product type, and brand.
+- A database match does not prove that the photographed package is genuine.
+- The image classifier is only as reliable as its training data and evaluation quality.
+- The application cannot confirm seals, tampering, storage conditions, supply-chain provenance, or physical contents.
+- Batch-number verification is limited by public database fields available for a product.
+- Google results are provided for manual investigation and are not an authenticity decision.
+- Do not use this result to replace professional medical advice.
