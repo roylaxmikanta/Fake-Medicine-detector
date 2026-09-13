@@ -180,3 +180,4 @@ async def predict(file: UploadFile = File(...)):
         "ml_analysis": ml_result,
         "usage_info": usage_info
     })
+
