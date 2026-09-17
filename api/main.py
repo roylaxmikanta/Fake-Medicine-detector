@@ -1,6 +1,7 @@
 import os
 import io
 import gc
+import threading
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
@@ -271,7 +272,10 @@ async def startup_event():
 
     # Load API Verifier
     api_verifier = MedicineAPIVerifier()
-    print("Resources loaded. EasyOCR will load on first request.")
+    print("Resources loaded. Starting EasyOCR warmup in background...")
+
+    # Pre-warm EasyOCR in a background thread so first request doesn't timeout
+    threading.Thread(target=_warmup_ocr, daemon=True).start()
 
 
 def get_reader():
@@ -294,6 +298,13 @@ def get_reader():
             print(f"Error loading EasyOCR fallback: {fallback_error}")
     return reader
 
+
+def _warmup_ocr():
+    """Background thread: pre-load EasyOCR so first user request is fast."""
+    print("[Background] Starting EasyOCR warmup...")
+    get_reader()
+    print("[Background] EasyOCR warmup complete.")
+
 @app.get("/health")
 async def health_check():
     return {
@@ -305,8 +316,9 @@ async def health_check():
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    if not file.filename.endswith(('.jpg', '.jpeg', '.png')):
-        raise HTTPException(status_code=400, detail="Invalid image format. Supported: JPG, PNG.")
+    # Accept .jpg/.jpeg/.png regardless of case (mobile phones save as .JPG/.PNG)
+    if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+        raise HTTPException(status_code=400, detail=f"Invalid image format '{file.filename.split('.')[-1]}'. Supported: JPG, PNG.")
     
     try:
         image_bytes = await file.read()

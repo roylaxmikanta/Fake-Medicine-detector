@@ -685,7 +685,15 @@
                     body: formData
                 });
 
-                if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+                if (!response.ok) {
+                    // Try to extract real error detail from FastAPI JSON response
+                    let errMsg = response.statusText || '';
+                    try {
+                        const errData = await response.json();
+                        errMsg = errData.detail || errMsg || `HTTP ${response.status}`;
+                    } catch (_) { errMsg = errMsg || `HTTP ${response.status}`; }
+                    throw new Error(`API Error: ${errMsg}`);
+                }
 
                 const data = await response.json();
                 renderResults(data);
