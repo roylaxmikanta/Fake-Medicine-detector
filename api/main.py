@@ -1,8 +1,12 @@
 import os
 import io
+import gc
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
+
+# Limit PyTorch to 1 thread to reduce memory footprint on free-tier servers
+torch.set_num_threads(1)
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -239,7 +243,7 @@ test_transforms = transforms.Compose([
 async def startup_event():
     global model, reader, api_verifier, class_names, ocr_languages_loaded
     print("Loading resources...")
-    
+
     # Load preprocessing metadata
     try:
         with open(PREPROCESSING_PATH, 'rb') as f:
@@ -257,28 +261,38 @@ async def startup_event():
         model_instance.to(device)
         model_instance.eval()
         model = model_instance
+        gc.collect()  # Free memory after model load
     except Exception as e:
         print(f"Error loading model: {e}")
 
-    # Load EasyOCR
+    # EasyOCR is loaded lazily on first request to reduce startup memory usage.
+    # This prevents OOM crashes on free-tier servers during startup.
+    ocr_languages_loaded = OCR_LANGUAGES
+
+    # Load API Verifier
+    api_verifier = MedicineAPIVerifier()
+    print("Resources loaded. EasyOCR will load on first request.")
+
+
+def get_reader():
+    """Lazy-load EasyOCR on first use to avoid OOM at startup."""
+    global reader, ocr_languages_loaded
+    if reader is not None:
+        return reader
+    print("Loading EasyOCR (first request)...")
     try:
-        reader = easyocr.Reader(
-            OCR_LANGUAGES,
-            gpu=OCR_USE_GPU and torch.cuda.is_available()
-        )
+        reader = easyocr.Reader(OCR_LANGUAGES, gpu=False)
         ocr_languages_loaded = OCR_LANGUAGES
+        print("EasyOCR loaded successfully.")
     except Exception as e:
-        print(f"Multilingual EasyOCR setup failed: {e}")
+        print(f"EasyOCR setup failed: {e}")
         try:
             reader = easyocr.Reader(['en'], gpu=False)
             ocr_languages_loaded = ['en']
             print("Falling back to English OCR.")
         except Exception as fallback_error:
             print(f"Error loading EasyOCR fallback: {fallback_error}")
-
-    # Load API Verifier
-    api_verifier = MedicineAPIVerifier()
-    print("Resources loaded successfully.")
+    return reader
 
 @app.get("/health")
 async def health_check():
@@ -300,9 +314,10 @@ async def predict(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
-    # 1. OCR Text Extraction
+    # 1. OCR Text Extraction (lazy-loads EasyOCR on first call)
     detected_text = None
-    if reader is not None:
+    ocr_reader = get_reader()
+    if ocr_reader is not None:
         try:
             detected_text = extract_ocr_text(image)
         except Exception as e:
@@ -388,6 +403,8 @@ async def predict(file: UploadFile = File(...)):
 
     if not usage_info and is_real_api and not is_expired and not is_suspected_fake:
         usage_info = api_result.get('indications_and_usage') or api_result.get('dosage_and_administration')
+
+    gc.collect()  # Free memory after each prediction
 
     return JSONResponse(content={
         "status": "EXPIRED" if is_expired else ("SUSPECTED_FAKE" if is_suspected_fake else "OK"),

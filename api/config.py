@@ -70,9 +70,9 @@ CLASS_LABELS = {
 # OCR SETTINGS
 # ==========================================
 
-# Languages loaded by EasyOCR. English is retained because medicine packaging
-# commonly mixes a local language with Latin-script names and identifiers.
-OCR_LANGUAGES = ['en', 'hi', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'ar']
+# Languages loaded by EasyOCR. Kept to English-only for deployment memory constraints.
+# Free-tier servers (Railway, Render) have ~512MB RAM; each extra language adds ~150MB.
+OCR_LANGUAGES = ['en']
 
 # Minimum OCR confidence to accept text
 OCR_MIN_CONFIDENCE = 0.5  # 50%
