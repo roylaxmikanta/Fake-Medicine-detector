@@ -1,7 +1,6 @@
 import os
 import io
 import gc
-import threading
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
@@ -12,7 +11,7 @@ from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-import easyocr
+import pytesseract
 import cv2
 from langdetect import DetectorFactory, detect_langs
 import pickle
@@ -31,7 +30,7 @@ groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Adjust imports from local module
 from .api_verifier import MedicineAPIVerifier
-from .config import OCR_LANGUAGES, OCR_MIN_CONFIDENCE, OCR_USE_GPU
+from .config import OCR_MIN_CONFIDENCE
 
 DetectorFactory.seed = 42
 
@@ -53,8 +52,6 @@ IMG_SIZE = 150
 
 # Global resources
 model = None
-reader = None
-ocr_languages_loaded = []
 api_verifier = None
 class_names = None
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -203,7 +200,7 @@ def detect_text_language(text):
 
 
 def extract_ocr_text(image):
-    """Run OCR on enhanced image variants to recover faint package dates."""
+    """Run OCR on enhanced image variants using pytesseract (lightweight, ~10MB)."""
     image_array = np.array(image)
     gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
     enlarged = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
@@ -213,25 +210,20 @@ def extract_ocr_text(image):
         cv2.THRESH_BINARY, 31, 11
     )
 
-    variants = [image_array, enlarged, contrast, threshold]
-    detections = []
-    for variant in variants:
+    tess_config = '--psm 6 -l eng'
+    seen = set()
+    texts = []
+    for variant in [image_array, enlarged, contrast, threshold]:
         try:
-            detections.extend(reader.readtext(variant))
+            raw = pytesseract.image_to_string(variant, config=tess_config)
+            for line in raw.splitlines():
+                line = line.strip()
+                if line and line not in seen:
+                    seen.add(line)
+                    texts.append(line)
         except Exception as error:
             print(f"OCR variant error: {error}")
 
-    texts = []
-    for detection in detections:
-        text = detection[1].strip()
-        confidence = detection[2]
-        is_expiry_like = re.search(
-            r'(?i)e\s*x\s*p|expiry|use\s*before|\d{1,2}\s*[A-Z]{3}\s*\d{4}',
-            text
-        )
-        if confidence > OCR_MIN_CONFIDENCE or (confidence > 0.15 and is_expiry_like):
-            if text and text not in texts:
-                texts.append(text)
     return ' '.join(texts) if texts else None
 
 test_transforms = transforms.Compose([
@@ -242,7 +234,7 @@ test_transforms = transforms.Compose([
 
 @app.on_event("startup")
 async def startup_event():
-    global model, reader, api_verifier, class_names, ocr_languages_loaded
+    global model, api_verifier, class_names
     print("Loading resources...")
 
     # Load preprocessing metadata
@@ -266,52 +258,16 @@ async def startup_event():
     except Exception as e:
         print(f"Error loading model: {e}")
 
-    # EasyOCR is loaded lazily on first request to reduce startup memory usage.
-    # This prevents OOM crashes on free-tier servers during startup.
-    ocr_languages_loaded = OCR_LANGUAGES
-
     # Load API Verifier
     api_verifier = MedicineAPIVerifier()
-    print("Resources loaded. Starting EasyOCR warmup in background...")
-
-    # Pre-warm EasyOCR in a background thread so first request doesn't timeout
-    threading.Thread(target=_warmup_ocr, daemon=True).start()
-
-
-def get_reader():
-    """Lazy-load EasyOCR on first use to avoid OOM at startup."""
-    global reader, ocr_languages_loaded
-    if reader is not None:
-        return reader
-    print("Loading EasyOCR (first request)...")
-    try:
-        reader = easyocr.Reader(OCR_LANGUAGES, gpu=False)
-        ocr_languages_loaded = OCR_LANGUAGES
-        print("EasyOCR loaded successfully.")
-    except Exception as e:
-        print(f"EasyOCR setup failed: {e}")
-        try:
-            reader = easyocr.Reader(['en'], gpu=False)
-            ocr_languages_loaded = ['en']
-            print("Falling back to English OCR.")
-        except Exception as fallback_error:
-            print(f"Error loading EasyOCR fallback: {fallback_error}")
-    return reader
-
-
-def _warmup_ocr():
-    """Background thread: pre-load EasyOCR so first user request is fast."""
-    print("[Background] Starting EasyOCR warmup...")
-    get_reader()
-    print("[Background] EasyOCR warmup complete.")
+    print("Resources loaded successfully.")
 
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "ocr_loaded": reader is not None,
-        "ocr_languages": ocr_languages_loaded
+        "ocr_engine": "pytesseract",
     }
 
 @app.post("/predict")
@@ -326,14 +282,12 @@ async def predict(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
-    # 1. OCR Text Extraction (lazy-loads EasyOCR on first call)
+    # 1. OCR Text Extraction using pytesseract (no model loading needed)
     detected_text = None
-    ocr_reader = get_reader()
-    if ocr_reader is not None:
-        try:
-            detected_text = extract_ocr_text(image)
-        except Exception as e:
-            print(f"OCR Error: {e}")
+    try:
+        detected_text = extract_ocr_text(image)
+    except Exception as e:
+        print(f"OCR Error: {e}")
 
     if not detected_text:
         return JSONResponse(content={
@@ -341,7 +295,7 @@ async def predict(file: UploadFile = File(...)):
             "message": "No readable text was extracted. Please upload a clean, well-lit photo showing the medicine name and expiry date.",
             "detected_text": None,
             "detected_language": None,
-            "ocr_languages": ocr_languages_loaded,
+            "ocr_languages": ['en'],
                 "evidence": None,
             "api_verification": None,
             "ml_analysis": None,
