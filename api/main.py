@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import easyocr
+import cv2
 from langdetect import DetectorFactory, detect_langs
 import pickle
 import numpy as np
@@ -15,7 +16,6 @@ import re
 import calendar
 from datetime import date, datetime
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
 import groq
 from dotenv import load_dotenv
 
@@ -58,27 +58,44 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def extract_expiry_date(text):
     """Return the expiry date and whether it has passed, using the package text."""
     patterns = [
-        r'(?i)\b(?:exp(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b',
-        r'(?i)\b(?:exp(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{1,2})[./-](\d{2,4})\b',
-        r'(?i)\b(?:exp(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{4})[./-](\d{1,2})\b',
+        r'(?i)\b(?:e\s*x\s*p(?:iry)?|use\s*before)\s*[:./-]?\s*((?:\d\s*){1,2})((?:[A-Z]\s*){3})((?:\d\s*){2,4})\b',
+        r'(?i)\b(?:e\s*x\s*p(?:iry)?|use\s*before)\s*[:./-]?\s*((?:[A-Z]\s*){3})((?:\d\s*){2,4})\b',
+        r'(?i)\b(?:e\s*x\s*p(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b',
+        r'(?i)\b(?:e\s*x\s*p(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{1,2})[./-](\d{2,4})\b',
+        r'(?i)\b(?:e\s*x\s*p(?:iry)?|use\s*before)\s*[:./-]?\s*(\d{4})[./-](\d{1,2})\b',
     ]
     for index, pattern in enumerate(patterns):
         match = re.search(pattern, text)
         if not match:
             continue
-        values = [int(value) for value in match.groups()]
+        values = list(match.groups())
         try:
-            if index == 2:
-                year, month = values
+            if index == 0:
+                day, month_name, year = values
+                day = int(day.replace(' ', ''))
+                year = int(year.replace(' ', ''))
+                year += 2000 if year < 100 else 0
+                month = datetime.strptime(month_name.replace(' ', '').upper(), '%b').month
+                expiry = date(year, month, day)
+                display = expiry.isoformat()
+            elif index == 1:
+                month_name, year = values
+                year = int(year.replace(' ', ''))
+                year += 2000 if year < 100 else 0
+                month = datetime.strptime(month_name.replace(' ', '').upper(), '%b').month
                 expiry = date(year, month, calendar.monthrange(year, month)[1])
                 display = f"{year:04d}-{month:02d}"
-            elif index == 0:
-                month, day, year = values
+            elif index == 4:
+                year, month = [int(value) for value in values]
+                expiry = date(year, month, calendar.monthrange(year, month)[1])
+                display = f"{year:04d}-{month:02d}"
+            elif index == 2:
+                month, day, year = [int(value) for value in values]
                 year += 2000 if year < 100 else 0
                 expiry = date(year, month, day)
                 display = expiry.isoformat()
             else:
-                month, year = values
+                month, year = [int(value) for value in values]
                 year += 2000 if year < 100 else 0
                 expiry = date(year, month, calendar.monthrange(year, month)[1])
                 display = f"{year:04d}-{month:02d}"
@@ -89,6 +106,31 @@ def extract_expiry_date(text):
             }
         except ValueError:
             continue
+
+    # Some packages print dates on separate rows without repeating an EXP label.
+    # When both MFG and expiry dates are present, the later date is normally expiry.
+    standalone_pattern = r'(?i)\b(\d{1,2})\s*([A-Z]{3})\s*(\d{4})\b'
+    standalone_dates = []
+    for match in re.finditer(standalone_pattern, text):
+        try:
+            day = int(match.group(1))
+            month = datetime.strptime(match.group(2).upper(), '%b').month
+            year = int(match.group(3))
+            standalone_dates.append(date(year, month, day))
+        except ValueError:
+            continue
+
+    if standalone_dates and len(standalone_dates) == 1 and re.search(r'(?i)\bmfg\b|manufactur', text):
+        return None
+
+    if standalone_dates:
+        expiry = max(standalone_dates)
+        return {
+            'value': expiry.isoformat(),
+            'expired': expiry < date.today(),
+            'checked_on': date.today().isoformat(),
+        }
+
     return None
 
 
@@ -153,6 +195,39 @@ def detect_text_language(text):
     except Exception:
         pass
     return {'code': 'unknown', 'confidence': 0.0}
+
+
+def extract_ocr_text(image):
+    """Run OCR on enhanced image variants to recover faint package dates."""
+    image_array = np.array(image)
+    gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+    enlarged = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    contrast = cv2.convertScaleAbs(enlarged, alpha=1.8, beta=0)
+    threshold = cv2.adaptiveThreshold(
+        contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 31, 11
+    )
+
+    variants = [image_array, enlarged, contrast, threshold]
+    detections = []
+    for variant in variants:
+        try:
+            detections.extend(reader.readtext(variant))
+        except Exception as error:
+            print(f"OCR variant error: {error}")
+
+    texts = []
+    for detection in detections:
+        text = detection[1].strip()
+        confidence = detection[2]
+        is_expiry_like = re.search(
+            r'(?i)e\s*x\s*p|expiry|use\s*before|\d{1,2}\s*[A-Z]{3}\s*\d{4}',
+            text
+        )
+        if confidence > OCR_MIN_CONFIDENCE or (confidence > 0.15 and is_expiry_like):
+            if text and text not in texts:
+                texts.append(text)
+    return ' '.join(texts) if texts else None
 
 test_transforms = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
@@ -229,11 +304,7 @@ async def predict(file: UploadFile = File(...)):
     detected_text = None
     if reader is not None:
         try:
-            img_array = np.array(image)
-            ocr_results = reader.readtext(img_array)
-            texts = [det[1] for det in ocr_results if det[2] > OCR_MIN_CONFIDENCE]
-            if texts:
-                detected_text = ' '.join(texts)
+            detected_text = extract_ocr_text(image)
         except Exception as e:
             print(f"OCR Error: {e}")
 
